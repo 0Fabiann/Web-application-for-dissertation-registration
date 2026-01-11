@@ -1,11 +1,9 @@
 "use client"
 
-import type React from "react"
-
 /**
  * Registration form component with role-specific fields
  */
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useAuth } from "@/lib/auth-context"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -13,7 +11,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { GraduationCap, BookOpen, Loader2 } from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { GraduationCap, BookOpen, Loader2, AlertCircle } from "lucide-react"
 import type { UserRole } from "@/lib/types"
 
 interface RegisterFormProps {
@@ -21,16 +20,14 @@ interface RegisterFormProps {
 }
 
 const departments = [
-  "Computer Science",
-  "Software Engineering",
-  "Data Science",
-  "Information Technology",
-  "Artificial Intelligence",
-  "Cybersecurity",
+  "Cybernetics",
+  "Economic Informatics",
+  "Economic Informatics (EN)",
+  "Statistics",
 ]
 
 export function RegisterForm({ onNavigate }: RegisterFormProps) {
-  const { register, isLoading } = useAuth()
+  const { register, isLoading, error: authError, clearError } = useAuth()
   const [role, setRole] = useState<UserRole>("student")
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
@@ -38,30 +35,43 @@ export function RegisterForm({ onNavigate }: RegisterFormProps) {
   const [confirmPassword, setConfirmPassword] = useState("")
   const [department, setDepartment] = useState("")
   const [studentId, setStudentId] = useState("")
-  const [error, setError] = useState("")
+  const [maxStudents, setMaxStudents] = useState("5")
+  const [localError, setLocalError] = useState("")
+
+  // Clear errors when fields change
+  useEffect(() => {
+    setLocalError("")
+    clearError()
+  }, [name, email, password, confirmPassword, department, studentId, maxStudents, role, clearError])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError("")
+    setLocalError("")
 
     if (!name || !email || !password || !confirmPassword || !department) {
-      setError("Please fill in all required fields")
+      setLocalError("Please fill in all required fields")
       return
     }
 
     if (password !== confirmPassword) {
-      setError("Passwords do not match")
+      setLocalError("Passwords do not match")
       return
     }
 
     if (password.length < 6) {
-      setError("Password must be at least 6 characters")
+      setLocalError("Password must be at least 6 characters")
       return
     }
 
-    if (role === "student" && !studentId) {
-      setError("Please enter your student ID")
-      return
+    if (role === "student") {
+      if (!studentId) {
+        setLocalError("Please enter your student ID")
+        return
+      }
+      if (!/^\d{8}$/.test(studentId)) {
+        setLocalError("Student ID must be exactly 8 digits")
+        return
+      }
     }
 
     const success = await register({
@@ -71,14 +81,15 @@ export function RegisterForm({ onNavigate }: RegisterFormProps) {
       role,
       department,
       studentId: role === "student" ? studentId : undefined,
+      maxStudents: role === "professor" ? parseInt(maxStudents) : undefined,
     })
 
     if (success) {
-      onNavigate(role === "student" ? "student-dashboard" : "professor-dashboard")
-    } else {
-      setError("Registration failed. Please try again.")
+      // Navigation will happen automatically based on user role
     }
   }
+
+  const displayError = localError || authError
 
   return (
     <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center py-12 px-4">
@@ -111,6 +122,7 @@ export function RegisterForm({ onNavigate }: RegisterFormProps) {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 disabled={isLoading}
+                autoComplete="name"
               />
             </div>
 
@@ -119,10 +131,11 @@ export function RegisterForm({ onNavigate }: RegisterFormProps) {
               <Input
                 id="email"
                 type="email"
-                placeholder={role === "student" ? "student@university.edu" : "professor@university.edu"}
+                placeholder="Your email address"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={isLoading}
+                autoComplete="email"
               />
             </div>
 
@@ -148,11 +161,29 @@ export function RegisterForm({ onNavigate }: RegisterFormProps) {
                 <Input
                   id="studentId"
                   type="text"
-                  placeholder="e.g., STU-2024-001"
+                  placeholder="Student ID (8 characters)"
                   value={studentId}
                   onChange={(e) => setStudentId(e.target.value)}
                   disabled={isLoading}
                 />
+              </div>
+            )}
+
+            {role === "professor" && (
+              <div className="space-y-2">
+                <Label htmlFor="maxStudents">Maximum Students to Coordinate</Label>
+                <Select value={maxStudents} onValueChange={setMaxStudents} disabled={isLoading}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select maximum students" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
+                      <SelectItem key={num} value={num.toString()}>
+                        {num} students
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             )}
 
@@ -161,10 +192,11 @@ export function RegisterForm({ onNavigate }: RegisterFormProps) {
               <Input
                 id="password"
                 type="password"
-                placeholder="Create a password"
+                placeholder="Create a password (min. 6 characters)"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={isLoading}
+                autoComplete="new-password"
               />
             </div>
 
@@ -177,10 +209,16 @@ export function RegisterForm({ onNavigate }: RegisterFormProps) {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 disabled={isLoading}
+                autoComplete="new-password"
               />
             </div>
 
-            {error && <p className="text-sm text-destructive">{error}</p>}
+            {displayError && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{displayError}</AlertDescription>
+              </Alert>
+            )}
 
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? (

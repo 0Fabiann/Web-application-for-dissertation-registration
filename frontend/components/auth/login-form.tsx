@@ -1,47 +1,50 @@
 "use client"
 
-import type React from "react"
-
 /**
- * Login form component with role selection
+ * Login form component
  */
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useAuth } from "@/lib/auth-context"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { GraduationCap, BookOpen, Loader2 } from "lucide-react"
-import type { UserRole } from "@/lib/types"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Loader2, AlertCircle } from "lucide-react"
 
 interface LoginFormProps {
   onNavigate: (page: string) => void
 }
 
 export function LoginForm({ onNavigate }: LoginFormProps) {
-  const { login, isLoading } = useAuth()
-  const [role, setRole] = useState<UserRole>("student")
+  const { login, isLoading, error: authError, clearError } = useAuth()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [error, setError] = useState("")
+  const [localError, setLocalError] = useState("")
+
+  // Clear errors when component mounts or fields change
+  useEffect(() => {
+    setLocalError("")
+    clearError()
+  }, [email, password, clearError])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError("")
+    setLocalError("")
 
     if (!email || !password) {
-      setError("Please fill in all fields")
+      setLocalError("Please fill in all fields")
       return
     }
 
-    const success = await login(email, password, role)
+    const success = await login(email, password)
     if (success) {
-      onNavigate(role === "student" ? "student-dashboard" : "professor-dashboard")
-    } else {
-      setError("Invalid credentials. Please try again.")
+      // Navigation will happen automatically based on user role
+      // The parent component will redirect based on user.role
     }
   }
+
+  const displayError = localError || authError
 
   return (
     <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center py-12 px-4">
@@ -51,29 +54,16 @@ export function LoginForm({ onNavigate }: LoginFormProps) {
           <CardDescription>Sign in to your account to continue</CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs value={role} onValueChange={(v) => setRole(v as UserRole)} className="mb-6">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="student" className="gap-2">
-                <BookOpen className="h-4 w-4" />
-                Student
-              </TabsTrigger>
-              <TabsTrigger value="professor" className="gap-2">
-                <GraduationCap className="h-4 w-4" />
-                Professor
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
                 type="email"
-                placeholder={role === "student" ? "student@university.edu" : "professor@university.edu"}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={isLoading}
+                autoComplete="email"
               />
             </div>
             <div className="space-y-2">
@@ -81,14 +71,19 @@ export function LoginForm({ onNavigate }: LoginFormProps) {
               <Input
                 id="password"
                 type="password"
-                placeholder="Enter your password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={isLoading}
+                autoComplete="current-password"
               />
             </div>
 
-            {error && <p className="text-sm text-destructive">{error}</p>}
+            {displayError && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{displayError}</AlertDescription>
+              </Alert>
+            )}
 
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? (

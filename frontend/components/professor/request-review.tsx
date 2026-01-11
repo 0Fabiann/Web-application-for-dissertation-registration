@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   Dialog,
   DialogContent,
@@ -19,18 +20,21 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Clock, CheckCircle, XCircle, MessageSquare, Calendar, FileText, ThumbsUp, ThumbsDown } from "lucide-react"
-import type { CoordinationRequest } from "@/lib/types"
+import { Clock, CheckCircle, XCircle, MessageSquare, Calendar, FileText, ThumbsUp, ThumbsDown, AlertCircle, Loader2 } from "lucide-react"
+import { requestsApi, type CoordinationRequest } from "@/lib/api"
 
 interface RequestReviewProps {
   requests: CoordinationRequest[]
+  onRequestUpdate?: () => void
 }
 
-export function RequestReview({ requests }: RequestReviewProps) {
+export function RequestReview({ requests, onRequestUpdate }: RequestReviewProps) {
   const [selectedRequest, setSelectedRequest] = useState<CoordinationRequest | null>(null)
   const [rejectionReason, setRejectionReason] = useState("")
   const [isProcessing, setIsProcessing] = useState(false)
   const [filterStatus, setFilterStatus] = useState<string>("all")
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false)
 
   const pendingRequests = requests.filter((r) => r.status === "pending")
   const approvedRequests = requests.filter((r) => r.status === "approved")
@@ -40,20 +44,33 @@ export function RequestReview({ requests }: RequestReviewProps) {
 
   const handleApprove = async (request: CoordinationRequest) => {
     setIsProcessing(true)
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-    setIsProcessing(false)
-    setSelectedRequest(null)
+    setActionError(null)
+    try {
+      await requestsApi.approve(request.id)
+      onRequestUpdate?.()
+    } catch (err: any) {
+      setActionError(err.message || "Failed to approve request")
+    } finally {
+      setIsProcessing(false)
+      setSelectedRequest(null)
+    }
   }
 
-  const handleReject = async () => {
+  const handleReject = async (requestId: string) => {
     if (!rejectionReason) return
     setIsProcessing(true)
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-    setIsProcessing(false)
-    setRejectionReason("")
-    setSelectedRequest(null)
+    setActionError(null)
+    try {
+      await requestsApi.reject(requestId, rejectionReason)
+      onRequestUpdate?.()
+      setRejectDialogOpen(false)
+    } catch (err: any) {
+      setActionError(err.message || "Failed to reject request")
+    } finally {
+      setIsProcessing(false)
+      setRejectionReason("")
+      setSelectedRequest(null)
+    }
   }
 
   const getStatusIcon = (status: CoordinationRequest["status"]) => {
@@ -166,8 +183,8 @@ export function RequestReview({ requests }: RequestReviewProps) {
                   <div className="flex items-start gap-3">
                     {getStatusIcon(request.status)}
                     <div>
-                      <CardTitle className="text-lg flex items-center gap-2">{request.studentName}</CardTitle>
-                      <CardDescription className="mt-1">{request.sessionTitle}</CardDescription>
+                      <CardTitle className="text-lg flex items-center gap-2">{request.student?.name || "Student"}</CardTitle>
+                      <CardDescription className="mt-1">{request.session?.title || "Registration Session"}</CardDescription>
                     </div>
                   </div>
                   {getStatusBadge(request.status)}
@@ -188,9 +205,16 @@ export function RequestReview({ requests }: RequestReviewProps) {
                   <div className="flex items-center gap-4 text-sm text-muted-foreground">
                     <div className="flex items-center gap-1">
                       <Calendar className="h-4 w-4" />
-                      <span>Submitted: {request.createdAt.toLocaleDateString()}</span>
+                      <span>Submitted: {new Date(request.createdAt).toLocaleDateString()}</span>
                     </div>
                   </div>
+
+                  {actionError && (
+                    <Alert variant="destructive">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>{actionError}</AlertDescription>
+                    </Alert>
+                  )}
 
                   {/* Rejection reason display */}
                   {request.status === "rejected" && request.rejectionReason && (
@@ -213,12 +237,28 @@ export function RequestReview({ requests }: RequestReviewProps) {
                         onClick={() => handleApprove(request)}
                         disabled={isProcessing}
                       >
-                        <ThumbsUp className="h-4 w-4" />
-                        Approve
+                        {isProcessing ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Approving...
+                          </>
+                        ) : (
+                          <>
+                            <ThumbsUp className="h-4 w-4" />
+                            Approve
+                          </>
+                        )}
                       </Button>
-                      <Dialog>
+                      <Dialog open={rejectDialogOpen && selectedRequest?.id === request.id} onOpenChange={(open) => {
+                        setRejectDialogOpen(open)
+                        if (open) setSelectedRequest(request)
+                        else {
+                          setSelectedRequest(null)
+                          setRejectionReason("")
+                        }
+                      }}>
                         <DialogTrigger asChild>
-                          <Button variant="destructive" className="gap-2">
+                          <Button variant="destructive" className="gap-2" disabled={isProcessing}>
                             <ThumbsDown className="h-4 w-4" />
                             Reject
                           </Button>
@@ -227,7 +267,7 @@ export function RequestReview({ requests }: RequestReviewProps) {
                           <DialogHeader>
                             <DialogTitle>Reject Request</DialogTitle>
                             <DialogDescription>
-                              Provide feedback to help {request.studentName} improve their proposal.
+                              Provide feedback to help {request.student?.name || "the student"} improve their proposal.
                             </DialogDescription>
                           </DialogHeader>
                           <div className="py-4">
@@ -244,10 +284,17 @@ export function RequestReview({ requests }: RequestReviewProps) {
                           <DialogFooter>
                             <Button
                               variant="destructive"
-                              onClick={handleReject}
+                              onClick={() => handleReject(request.id)}
                               disabled={!rejectionReason || isProcessing}
                             >
-                              {isProcessing ? "Rejecting..." : "Confirm Rejection"}
+                              {isProcessing ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                  Rejecting...
+                                </>
+                              ) : (
+                                "Confirm Rejection"
+                              )}
                             </Button>
                           </DialogFooter>
                         </DialogContent>

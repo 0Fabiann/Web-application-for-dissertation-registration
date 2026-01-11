@@ -3,32 +3,71 @@
 /**
  * Professor dashboard main component
  */
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useAuth } from "@/lib/auth-context"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { GraduationCap, Users, FileText, Clock, Calendar, Plus } from "lucide-react"
-import { mockSessions, mockRequests } from "@/lib/mock-data"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { GraduationCap, Users, FileText, Clock, Calendar, Plus, Loader2, AlertCircle } from "lucide-react"
 import { SessionManager } from "./session-manager"
 import { RequestReview } from "./request-review"
+import { sessionsApi, requestsApi, type RegistrationSession, type CoordinationRequest } from "@/lib/api"
 import type { Professor } from "@/lib/types"
 
 export function ProfessorDashboard() {
   const { user } = useAuth()
   const professor = user as Professor
   const [activeTab, setActiveTab] = useState("overview")
+  const [sessions, setSessions] = useState<RegistrationSession[]>([])
+  const [requests, setRequests] = useState<CoordinationRequest[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  // Get professor's sessions and requests
-  const professorSessions = mockSessions.filter(
-    (s) => s.professorId === professor?.id || s.professorName === professor?.name,
-  )
-  const professorRequests = mockRequests.filter(
-    (r) => r.professorId === professor?.id || r.professorName === professor?.name,
-  )
-  const pendingRequests = professorRequests.filter((r) => r.status === "pending")
-  const activeSessions = professorSessions.filter((s) => s.status === "active")
+  // Fetch professor's sessions and requests from API
+  const fetchData = async () => {
+    try {
+      setIsLoading(true)
+      const [sessionsRes, requestsRes] = await Promise.all([
+        sessionsApi.getMySessions(),
+        requestsApi.getMyRequests()
+      ])
+      setSessions(sessionsRes.data.sessions)
+      setRequests(requestsRes.data.requests)
+      setError(null)
+    } catch (err: any) {
+      setError(err.message || "Failed to load data")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchData()
+  }, [])
+
+  const pendingRequests = requests.filter((r) => r.status === "pending")
+  const activeSessions = sessions.filter((s) => s.status === "active")
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      </div>
+    )
+  }
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -113,7 +152,7 @@ export function ProfessorDashboard() {
                 <FileText className="h-6 w-6 text-accent" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-foreground">{professorRequests.length}</p>
+                <p className="text-2xl font-bold text-foreground">{requests.length}</p>
                 <p className="text-sm text-muted-foreground">Total Requests</p>
               </div>
             </div>
@@ -179,7 +218,7 @@ export function ProfessorDashboard() {
                           <span>
                             {session.availableSlots} of {session.maxSlots} slots
                           </span>
-                          <span>Ends: {session.endDate.toLocaleDateString()}</span>
+                          <span>Ends: {new Date(session.endDate).toLocaleDateString()}</span>
                         </div>
                       </div>
                     ))}
@@ -195,14 +234,14 @@ export function ProfessorDashboard() {
                 <CardDescription>Latest student coordination requests</CardDescription>
               </CardHeader>
               <CardContent>
-                {professorRequests.length === 0 ? (
+                {requests.length === 0 ? (
                   <div className="text-center py-8">
                     <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                     <p className="text-muted-foreground">No requests yet</p>
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {professorRequests.slice(0, 4).map((request) => (
+                    {requests.slice(0, 4).map((request) => (
                       <div key={request.id} className="flex items-start justify-between p-4 rounded-lg bg-secondary/50">
                         <div className="space-y-1">
                           <p className="font-medium text-foreground text-sm">{request.studentName}</p>
@@ -221,7 +260,7 @@ export function ProfessorDashboard() {
                         </Badge>
                       </div>
                     ))}
-                    {professorRequests.length > 4 && (
+                    {requests.length > 4 && (
                       <Button variant="ghost" className="w-full" onClick={() => setActiveTab("requests")}>
                         View all requests
                       </Button>
@@ -234,11 +273,11 @@ export function ProfessorDashboard() {
         </TabsContent>
 
         <TabsContent value="sessions">
-          <SessionManager sessions={professorSessions} />
+          <SessionManager />
         </TabsContent>
 
         <TabsContent value="requests">
-          <RequestReview requests={professorRequests} />
+          <RequestReview requests={requests} onRequestUpdate={fetchData} />
         </TabsContent>
       </Tabs>
     </div>

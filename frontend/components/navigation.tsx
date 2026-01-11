@@ -46,24 +46,14 @@ export function Navigation({ onNavigate, currentPage }: NavigationProps) {
         {/* Desktop Navigation */}
         <div className="hidden md:flex items-center gap-6">
           {!user && (
-            <>
-              <button
-                onClick={() => handleNavigation("landing")}
-                className={`text-sm font-medium transition-colors hover:text-primary ${
-                  currentPage === "landing" ? "text-primary" : "text-muted-foreground"
-                }`}
-              >
-                Home
-              </button>
-              <button
-                onClick={() => handleNavigation("about")}
-                className={`text-sm font-medium transition-colors hover:text-primary ${
-                  currentPage === "about" ? "text-primary" : "text-muted-foreground"
-                }`}
-              >
-                About
-              </button>
-            </>
+            <button
+              onClick={() => handleNavigation("landing")}
+              className={`text-sm font-medium transition-colors hover:text-primary ${
+                currentPage === "landing" ? "text-primary" : "text-muted-foreground"
+              }`}
+            >
+              Home
+            </button>
           )}
 
           {user && (
@@ -135,12 +125,6 @@ export function Navigation({ onNavigate, currentPage }: NavigationProps) {
                   className="block w-full text-left py-2 text-sm font-medium text-foreground hover:text-primary"
                 >
                   Home
-                </button>
-                <button
-                  onClick={() => handleNavigation("about")}
-                  className="block w-full text-left py-2 text-sm font-medium text-foreground hover:text-primary"
-                >
-                  About
                 </button>
                 <div className="pt-3 border-t border-border space-y-2">
                   <Button variant="outline" className="w-full bg-transparent" onClick={() => handleNavigation("login")}>

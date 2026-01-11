@@ -3,31 +3,75 @@
 /**
  * Student dashboard main component
  */
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useAuth } from "@/lib/auth-context"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { BookOpen, FileText, Clock, CheckCircle, Search, Plus } from "lucide-react"
-import { mockSessions, mockRequests } from "@/lib/mock-data"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { BookOpen, FileText, Clock, CheckCircle, Search, Plus, Loader2, AlertCircle } from "lucide-react"
 import { SessionBrowser } from "./session-browser"
 import { StudentRequests } from "./student-requests"
+import { sessionsApi, requestsApi, type RegistrationSession, type CoordinationRequest } from "@/lib/api"
 import type { Student } from "@/lib/types"
 
 export function StudentDashboard() {
   const { user } = useAuth()
   const student = user as Student
   const [activeTab, setActiveTab] = useState("overview")
+  const [sessions, setSessions] = useState<RegistrationSession[]>([])
+  const [requests, setRequests] = useState<CoordinationRequest[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  // Get student's requests
-  const studentRequests = mockRequests.filter((r) => r.studentId === student?.id || r.studentName === student?.name)
-  const pendingRequests = studentRequests.filter((r) => r.status === "pending")
-  const approvedRequests = studentRequests.filter((r) => r.status === "approved")
+  // Fetch student's requests and available sessions from API
+  const fetchData = async () => {
+    try {
+      setIsLoading(true)
+      const [sessionsRes, requestsRes] = await Promise.all([
+        sessionsApi.getActive(),
+        requestsApi.getMyRequests()
+      ])
+      setSessions(sessionsRes.data.sessions)
+      setRequests(requestsRes.data.requests)
+      setError(null)
+    } catch (err: any) {
+      setError(err.message || "Failed to load data")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchData()
+  }, [])
+
+  const pendingRequests = requests.filter((r) => r.status === "pending")
+  const approvedRequests = requests.filter((r) => r.status === "approved")
   const hasApproval = approvedRequests.length > 0 || student?.approvedProfessorId
 
-  // Get active sessions
-  const activeSessions = mockSessions.filter((s) => s.status === "active" && s.availableSlots > 0)
+  // Get active sessions with available slots
+  const activeSessions = sessions.filter((s) => s.status === "active" && s.availableSlots > 0)
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      </div>
+    )
+  }
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -65,7 +109,7 @@ export function StudentDashboard() {
                 <FileText className="h-6 w-6 text-primary" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-foreground">{studentRequests.length}</p>
+                <p className="text-2xl font-bold text-foreground">{requests.length}</p>
                 <p className="text-sm text-muted-foreground">Total Requests</p>
               </div>
             </div>
@@ -141,7 +185,7 @@ export function StudentDashboard() {
                 <CardDescription>Your latest dissertation coordination requests</CardDescription>
               </CardHeader>
               <CardContent>
-                {studentRequests.length === 0 ? (
+                {requests.length === 0 ? (
                   <div className="text-center py-8">
                     <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                     <p className="text-muted-foreground mb-4">No requests yet</p>
@@ -152,11 +196,11 @@ export function StudentDashboard() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {studentRequests.slice(0, 3).map((request) => (
+                    {requests.slice(0, 3).map((request) => (
                       <div key={request.id} className="flex items-start justify-between p-4 rounded-lg bg-secondary/50">
                         <div className="space-y-1">
                           <p className="font-medium text-foreground text-sm">{request.dissertationTopic}</p>
-                          <p className="text-xs text-muted-foreground">{request.professorName}</p>
+                          <p className="text-xs text-muted-foreground">{request.professor?.name || "Professor"}</p>
                         </div>
                         <Badge
                           variant={
@@ -171,7 +215,7 @@ export function StudentDashboard() {
                         </Badge>
                       </div>
                     ))}
-                    {studentRequests.length > 3 && (
+                    {requests.length > 3 && (
                       <Button variant="ghost" className="w-full" onClick={() => setActiveTab("requests")}>
                         View all requests
                       </Button>
@@ -203,8 +247,8 @@ export function StudentDashboard() {
                             {session.availableSlots} slots
                           </Badge>
                         </div>
-                        <p className="text-xs text-muted-foreground mb-2">{session.professorName}</p>
-                        <p className="text-xs text-muted-foreground">Ends: {session.endDate.toLocaleDateString()}</p>
+                        <p className="text-xs text-muted-foreground mb-2">{session.professor?.name || "Professor"}</p>
+                        <p className="text-xs text-muted-foreground">Ends: {new Date(session.endDate).toLocaleDateString()}</p>
                       </div>
                     ))}
                     <Button variant="ghost" className="w-full" onClick={() => setActiveTab("sessions")}>
@@ -222,7 +266,7 @@ export function StudentDashboard() {
         </TabsContent>
 
         <TabsContent value="requests">
-          <StudentRequests requests={studentRequests} />
+          <StudentRequests requests={requests} onRequestUpdate={fetchData} />
         </TabsContent>
       </Tabs>
     </div>

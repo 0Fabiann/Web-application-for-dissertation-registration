@@ -2,11 +2,13 @@
 
 /**
  * Component displaying student's coordination requests and their status
+ * Uses real backend API for document uploads
  */
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   Dialog,
   DialogContent,
@@ -18,17 +20,20 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Clock, CheckCircle, XCircle, Upload, FileText, Calendar, MessageSquare } from "lucide-react"
-import type { CoordinationRequest } from "@/lib/types"
+import { Clock, CheckCircle, XCircle, Upload, FileText, Calendar, MessageSquare, Loader2, AlertCircle } from "lucide-react"
+import { documentsApi, type CoordinationRequest } from "@/lib/api"
 
 interface StudentRequestsProps {
   requests: CoordinationRequest[]
+  onRequestUpdate?: () => void
 }
 
-export function StudentRequests({ requests }: StudentRequestsProps) {
+export function StudentRequests({ requests, onRequestUpdate }: StudentRequestsProps) {
   const [selectedRequest, setSelectedRequest] = useState<CoordinationRequest | null>(null)
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
   const [isUploading, setIsUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false)
 
   const getStatusIcon = (status: CoordinationRequest["status"]) => {
     switch (status) {
@@ -64,15 +69,22 @@ export function StudentRequests({ requests }: StudentRequestsProps) {
     }
   }
 
-  const handleFileUpload = async () => {
+  const handleFileUpload = async (requestId: string) => {
     if (!uploadedFile) return
 
     setIsUploading(true)
-    // Simulate upload
-    await new Promise((resolve) => setTimeout(resolve, 1500))
-    setIsUploading(false)
-    setUploadedFile(null)
-    setSelectedRequest(null)
+    setUploadError(null)
+    try {
+      await documentsApi.upload(requestId, uploadedFile)
+      setUploadDialogOpen(false)
+      onRequestUpdate?.()
+    } catch (err: any) {
+      setUploadError(err.message || "Failed to upload document")
+    } finally {
+      setIsUploading(false)
+      setUploadedFile(null)
+      setSelectedRequest(null)
+    }
   }
 
   if (requests.length === 0) {
@@ -98,7 +110,7 @@ export function StudentRequests({ requests }: StudentRequestsProps) {
                 <div>
                   <CardTitle className="text-lg">{request.dissertationTopic}</CardTitle>
                   <CardDescription className="mt-1">
-                    {request.professorName} | {request.sessionTitle}
+                    {request.professor?.name || "Professor"} | {request.session?.title || "Session"}
                   </CardDescription>
                 </div>
               </div>
@@ -112,11 +124,11 @@ export function StudentRequests({ requests }: StudentRequestsProps) {
               <div className="flex items-center gap-4 text-sm text-muted-foreground">
                 <div className="flex items-center gap-1">
                   <Calendar className="h-4 w-4" />
-                  <span>Submitted: {request.createdAt.toLocaleDateString()}</span>
+                  <span>Submitted: {new Date(request.createdAt).toLocaleDateString()}</span>
                 </div>
                 <div className="flex items-center gap-1">
                   <Clock className="h-4 w-4" />
-                  <span>Updated: {request.updatedAt.toLocaleDateString()}</span>
+                  <span>Updated: {new Date(request.updatedAt).toLocaleDateString()}</span>
                 </div>
               </div>
 
@@ -135,9 +147,20 @@ export function StudentRequests({ requests }: StudentRequestsProps) {
 
               {/* Upload document button for approved requests */}
               {request.status === "approved" && (
-                <Dialog>
+                <Dialog
+                  open={uploadDialogOpen && selectedRequest?.id === request.id}
+                  onOpenChange={(open) => {
+                    setUploadDialogOpen(open)
+                    if (open) setSelectedRequest(request)
+                    else {
+                      setSelectedRequest(null)
+                      setUploadedFile(null)
+                      setUploadError(null)
+                    }
+                  }}
+                >
                   <DialogTrigger asChild>
-                    <Button className="gap-2" onClick={() => setSelectedRequest(request)}>
+                    <Button className="gap-2">
                       <Upload className="h-4 w-4" />
                       Upload Signed Document
                     </Button>
@@ -151,12 +174,12 @@ export function StudentRequests({ requests }: StudentRequestsProps) {
                       <div className="space-y-4">
                         <div className="border-2 border-dashed border-border rounded-lg p-8 text-center">
                           <Upload className="h-10 w-10 text-muted-foreground mx-auto mb-4" />
-                          <Label htmlFor="file-upload" className="cursor-pointer">
+                          <Label htmlFor={`file-upload-${request.id}`} className="cursor-pointer">
                             <span className="text-primary hover:underline">Click to upload</span>
                             <span className="text-muted-foreground"> or drag and drop</span>
                           </Label>
                           <Input
-                            id="file-upload"
+                            id={`file-upload-${request.id}`}
                             type="file"
                             accept=".pdf,.doc,.docx"
                             className="hidden"
@@ -173,11 +196,24 @@ export function StudentRequests({ requests }: StudentRequestsProps) {
                             </Button>
                           </div>
                         )}
+                        {uploadError && (
+                          <Alert variant="destructive">
+                            <AlertCircle className="h-4 w-4" />
+                            <AlertDescription>{uploadError}</AlertDescription>
+                          </Alert>
+                        )}
                       </div>
                     </div>
                     <DialogFooter>
-                      <Button onClick={handleFileUpload} disabled={!uploadedFile || isUploading}>
-                        {isUploading ? "Uploading..." : "Upload Document"}
+                      <Button onClick={() => handleFileUpload(request.id)} disabled={!uploadedFile || isUploading}>
+                        {isUploading ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                            Uploading...
+                          </>
+                        ) : (
+                          "Upload Document"
+                        )}
                       </Button>
                     </DialogFooter>
                   </DialogContent>

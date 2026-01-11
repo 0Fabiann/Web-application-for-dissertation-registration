@@ -3,13 +3,14 @@
 /**
  * Component for browsing and applying to registration sessions
  */
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   Dialog,
   DialogContent,
@@ -19,45 +20,78 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Search, Calendar, Users, Clock, Send, CheckCircle, AlertCircle } from "lucide-react"
-import { mockSessions } from "@/lib/mock-data"
-import type { RegistrationSession } from "@/lib/types"
+import { Search, Calendar, Users, Clock, Send, CheckCircle, AlertCircle, Loader2 } from "lucide-react"
+import { sessionsApi, requestsApi, type RegistrationSession } from "@/lib/api"
+
+// Delay before closing success dialog (in milliseconds)
+const SUCCESS_DIALOG_DELAY = 2000
 
 interface SessionBrowserProps {
   hasApproval: boolean
 }
 
 export function SessionBrowser({ hasApproval }: SessionBrowserProps) {
+  const [sessions, setSessions] = useState<RegistrationSession[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedSession, setSelectedSession] = useState<RegistrationSession | null>(null)
   const [dissertationTopic, setDissertationTopic] = useState("")
   const [message, setMessage] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitSuccess, setSubmitSuccess] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
-  const filteredSessions = mockSessions.filter(
+  // Fetch sessions from API
+  useEffect(() => {
+    const fetchSessions = async () => {
+      try {
+        setIsLoading(true)
+        const response = await sessionsApi.getAll()
+        setSessions(response.data.sessions)
+        setError(null)
+      } catch (err: any) {
+        setError(err.message || "Failed to load sessions")
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    fetchSessions()
+  }, [])
+
+  const filteredSessions = sessions.filter(
     (session) =>
       session.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      session.professorName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      session.description.toLowerCase().includes(searchQuery.toLowerCase()),
+      session.professor?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      session.description?.toLowerCase().includes(searchQuery.toLowerCase()),
   )
 
   const handleSubmitRequest = async () => {
-    if (!dissertationTopic || !message) return
+    if (!dissertationTopic || !selectedSession) return
 
     setIsSubmitting(true)
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-    setIsSubmitting(false)
-    setSubmitSuccess(true)
+    setSubmitError(null)
 
-    // Reset form after 2 seconds
-    setTimeout(() => {
-      setSelectedSession(null)
-      setDissertationTopic("")
-      setMessage("")
-      setSubmitSuccess(false)
-    }, 2000)
+    try {
+      await requestsApi.create({
+        sessionId: selectedSession.id,
+        dissertationTopic,
+        message,
+      })
+      setSubmitSuccess(true)
+
+      // Reset form after 2 seconds
+      setTimeout(() => {
+        setSelectedSession(null)
+        setDissertationTopic("")
+        setMessage("")
+        setSubmitSuccess(false)
+      }, SUCCESS_DIALOG_DELAY)
+    } catch (err: any) {
+      setSubmitError(err.message || "Failed to submit request")
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const getStatusBadge = (status: RegistrationSession["status"]) => {
@@ -69,6 +103,27 @@ export function SessionBrowser({ hasApproval }: SessionBrowserProps) {
       case "closed":
         return <Badge variant="outline">Closed</Badge>
     }
+  }
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString()
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <Alert variant="destructive">
+        <AlertCircle className="h-4 w-4" />
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
+    )
   }
 
   return (
@@ -107,7 +162,7 @@ export function SessionBrowser({ hasApproval }: SessionBrowserProps) {
                 <CardTitle className="text-lg leading-tight">{session.title}</CardTitle>
                 {getStatusBadge(session.status)}
               </div>
-              <CardDescription>{session.professorName}</CardDescription>
+              <CardDescription>{session.professor?.name || "Unknown Professor"}</CardDescription>
             </CardHeader>
             <CardContent className="flex-1">
               <p className="text-sm text-muted-foreground mb-4 line-clamp-3">{session.description}</p>
@@ -115,7 +170,7 @@ export function SessionBrowser({ hasApproval }: SessionBrowserProps) {
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <Calendar className="h-4 w-4" />
                   <span>
-                    {session.startDate.toLocaleDateString()} - {session.endDate.toLocaleDateString()}
+                    {formatDate(session.startDate)} - {formatDate(session.endDate)}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 text-muted-foreground">
@@ -131,25 +186,30 @@ export function SessionBrowser({ hasApproval }: SessionBrowserProps) {
                 <DialogTrigger asChild>
                   <Button
                     className="w-full"
-                    disabled={session.status !== "active" || session.availableSlots === 0}
+                    disabled={session.status !== "active" || session.availableSlots === 0 || hasApproval}
                     onClick={() => setSelectedSession(session)}
                   >
-                    {session.status === "active" && session.availableSlots > 0
-                      ? "Apply Now"
-                      : session.status === "upcoming"
-                        ? "Opens Soon"
-                        : session.availableSlots === 0
-                          ? "No Slots Available"
-                          : "Closed"}
+                    {hasApproval
+                      ? "Already Approved"
+                      : session.status === "active" && session.availableSlots > 0
+                        ? "Request Coordination"
+                        : session.status === "upcoming"
+                          ? "Opens Soon"
+                          : session.availableSlots === 0
+                            ? "No Slots Available"
+                            : "Closed"}
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="sm:max-w-lg">
                   {submitSuccess ? (
                     <div className="py-8 text-center">
+                      <DialogHeader className="sr-only">
+                        <DialogTitle>Success</DialogTitle>
+                      </DialogHeader>
                       <CheckCircle className="h-16 w-16 text-success mx-auto mb-4" />
                       <h3 className="text-xl font-semibold text-foreground mb-2">Request Submitted!</h3>
                       <p className="text-muted-foreground">
-                        Your coordination request has been sent to {selectedSession?.professorName}.
+                        Your coordination request has been sent to {selectedSession?.professor?.name}.
                       </p>
                     </div>
                   ) : (
@@ -157,7 +217,7 @@ export function SessionBrowser({ hasApproval }: SessionBrowserProps) {
                       <DialogHeader>
                         <DialogTitle>Submit Coordination Request</DialogTitle>
                         <DialogDescription>
-                          Apply to {selectedSession?.professorName} for {selectedSession?.title}
+                          Apply to {selectedSession?.professor?.name} for {selectedSession?.title}
                         </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4 py-4">
@@ -180,16 +240,22 @@ export function SessionBrowser({ hasApproval }: SessionBrowserProps) {
                             rows={4}
                           />
                         </div>
+                        {submitError && (
+                          <Alert variant="destructive">
+                            <AlertCircle className="h-4 w-4" />
+                            <AlertDescription>{submitError}</AlertDescription>
+                          </Alert>
+                        )}
                       </div>
                       <DialogFooter>
                         <Button
                           onClick={handleSubmitRequest}
-                          disabled={!dissertationTopic || !message || isSubmitting}
+                          disabled={!dissertationTopic || isSubmitting}
                           className="gap-2"
                         >
                           {isSubmitting ? (
                             <>
-                              <Clock className="h-4 w-4 animate-spin" />
+                              <Loader2 className="h-4 w-4 animate-spin" />
                               Submitting...
                             </>
                           ) : (
